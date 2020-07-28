@@ -1,0 +1,52 @@
+# Build stage
+# Use openjdk alpine to create intermediate container for building application
+
+FROM openjdk:8-jdk-alpine as build
+
+# Create build arguments with default values
+ARG BUILD_WORKDIR=/app
+ARG POM_FILE=./pom.xml
+ARG SRC_PROJECT=./src
+ARG MAVEN_CMD=./mvnw
+ARG MAVEN_DIR=./.mvn
+ARG TARGET_DIR=./target/dependency
+
+# set a work directory
+WORKDIR ${BUILD_WORKDIR}
+
+# copy all files to build spring boot application
+COPY ${MAVEN_CMD} .
+COPY ${MAVEN_DIR} .mvn
+COPY ${POM_FILE} .
+
+RUN chmod +x ./${MAVEN_CMD}
+
+# Download source code project
+COPY ${SRC_PROJECT} src
+
+# Packaging application
+RUN ./mvnw package -DskipTests
+RUN mkdir -p ${TARGET_DIR} && (cd ${TARGET_DIR}; jar -xf ../*.jar)
+
+
+# Prod stage
+FROM openjdk:8-jre-alpine as production
+ARG PROD_WORKDIR=/app
+ARG DEPENDENCY=./target/dependency
+ARG BUILD_STAGE_WORKDIR=/app
+# set a work directory
+WORKDIR ${PROD_WORKDIR}
+
+# Copy the dependency application file from build stage artifact
+COPY --from=build ${BUILD_STAGE_WORKDIR}/${DEPENDENCY}/BOOT-INF/lib ./app/lib
+COPY --from=build ${BUILD_STAGE_WORKDIR}/${DEPENDENCY}/META-INF ./META-INF
+COPY --from=build ${BUILD_STAGE_WORKDIR}/${DEPENDENCY}/BOOT-INF/classes ./app
+
+# set env variables
+ENV JAVA_MAIN_CLASS pwc.com.dockermultistagebuild.DockerMultiStageBuildApplication
+# change PORT if you use another
+ENV PORT 8080 
+EXPOSE $PORT
+# running command for java app; launch java main class
+ENTRYPOINT java -cp app:app/lib/* ${JAVA_MAIN_CLASS}
+
